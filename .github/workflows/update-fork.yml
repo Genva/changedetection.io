@@ -1,15 +1,13 @@
-name: Sync Fork
+name: Build
 on:
   schedule:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
-  update-check:
+  check-release:
     name: Check for new release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.release-version.outputs.version }}
       update-available: ${{ steps.update-release.outputs.has-update }}
@@ -26,32 +24,21 @@ jobs:
         id: release-version
         run: |
           last_release=(cat release)
-          current_release=$(curl https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest | jq -r .tag_name)
+          current_release=$(curl https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest --header "Authorization: Bearer $GITHUB_TOKEN"| jq -r .tag_name)
+          echo "Last release:$last_release"
+          echo "Current release:$current_release"
           if [[ "$current_release" != "$last_release" ]]; then
             echo "version=$current_release" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Update release
-        id: update-release
-        run: |
-          last_release=(cat release)
-          if [[ "$current_release" != "$last_release" ]]; then
             echo "has-update=true" >> $GITHUB_OUTPUT
-            echo $current_release > release
-            git config --global user.name 'github-actions'
-            git config --global user.email 'github-actions@users.noreply.github.com'
-            git add release
-            git commit -m "Update release"
-            git push origin main
           else
-            echo "has-update=true" >> $GITHUB_OUTPUT
+            echo "has-update=false" >> $GITHUB_OUTPUT
           fi
 
   sync-fork:
     name: Sync fork
     runs-on: ubuntu-latest
-    needs: update-check
-    if: needs.update-check.outputs.update-available == 'true'
+    needs: check-release
+    if: needs.check-release.outputs.update-available == 'true'
     steps:
       - name: Sync master branch
         run: gh repo sync ${{ github.repository }} -b master
@@ -61,7 +48,7 @@ jobs:
   build-push-containers:
     name: Build and publish image
     runs-on: ubuntu-latest
-    needs: [update-check, sync-fork]
+    needs: [ check-release, sync-fork ]
     permissions:
       contents: write
     steps:
@@ -72,7 +59,10 @@ jobs:
           fetch-depth: 0
 
       - name: Apply patch
-        run: git cherry-pick baec5f3c73750765d9ff47a66c4f426f9de732cc
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@users.noreply.github.com'
+          git cherry-pick baec5f3c73750765d9ff47a66c4f426f9de732cc
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v6
@@ -97,7 +87,7 @@ jobs:
         run: |
           # COPY'ed by Dockerfile into changedetectionio/ of the image, then read by the server in store.py
           echo ${{ github.sha }} > changedetectionio/source.txt
-          echo ${{ needs.update-check.outputs.version }} > changedetectionio/tag.txt
+          echo ${{ needs.check-release.outputs.version }} > changedetectionio/tag.txt
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -126,7 +116,7 @@ jobs:
         with:
             images: ghcr.io/Genva/changedetection.io
             tags: |
-                type=semver,pattern={{version}},value=${{ needs.update-check.outputs.version }}
+                type=semver,pattern={{version}},value=${{ needs.check-release.outputs.version }}
                 type=raw,value=latest
 
       - name: Build and push :tag
@@ -140,3 +130,23 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  update-release:
+    name: Update release file
+    runs-on: ubuntu-latest
+    needs: [ check-release, build-push-containers ]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      
+      - name: Update release
+        id: update-release
+        run: |
+          echo "${{ needs.check-release.outputs.version }}" > release
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@users.noreply.github.com'
+          git add release
+          git commit -m "Update release"
+          git push origin main
