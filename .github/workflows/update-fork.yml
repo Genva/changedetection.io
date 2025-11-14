@@ -24,7 +24,7 @@ jobs:
         id: release-version
         run: |
           last_release=$(cat release)
-          current_release=$(curl -v https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest --header "Authorization: Bearer $GITHUB_TOKEN"| jq -r .tag_name)
+          current_release=$(curl -v https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest --header "Authorization: Token $GITHUB_TOKEN"| jq -r .tag_name)
           echo "Last release:$last_release"
           echo "Current release:$current_release"
           if [[ "$current_release" != "$last_release" ]]; then
