@@ -138,7 +138,6 @@ def _is_safe_valid_url(test_url):
     from .validate_url import is_safe_valid_url
     return is_safe_valid_url(test_url)
 
-
 @app.template_filter('format_number_locale')
 def _jinja2_filter_format_number_locale(value: float) -> str:
     "Formats for example 4000.10 to the local locale default of 4,000.10"
@@ -351,7 +350,7 @@ def changedetection_app(config=None, datastore_o=None):
     @login_manager.unauthorized_handler
     def unauthorized_handler():
         flash("You must be logged in, please log in.", 'error')
-        return redirect(url_for('login', next=url_for('watchlist.index')))
+        return redirect(url_for('login', redirect=request.path))
 
     @app.route('/logout')
     def logout():
@@ -362,13 +361,16 @@ def changedetection_app(config=None, datastore_o=None):
     # You can divide up the stuff like this
     @app.route('/login', methods=['GET', 'POST'])
     def login():
-
+        redirect_arg = request.args.get('redirect') or request.form.get('redirect')
+        if not is_safe_url(redirect_arg):
+            redirect_arg = None
+        redirect_url = redirect_arg or url_for('watchlist.index')
         if request.method == 'GET':
             if flask_login.current_user.is_authenticated:
                 flash("Already logged in")
                 return redirect(url_for("watchlist.index"))
 
-            output = render_template("login.html")
+            output = render_template("login.html", redirect_url=redirect_url)
             return output
 
         user = User()
@@ -386,15 +388,20 @@ def changedetection_app(config=None, datastore_o=None):
             # return redirect(next or url_for('watchlist.index'))
             # We would sometimes get login loop errors on sites hosted in sub-paths
 
-            # note for the future:
-            #            if not is_safe_valid_url(next):
-            #                return flask.abort(400)
-            return redirect(url_for('watchlist.index'))
-
+            return redirect(redirect_url)
         else:
             flash('Incorrect password', 'error')
 
-        return redirect(url_for('login'))
+        return redirect(url_for('login', redirect=redirect_url))
+
+    def is_safe_url(target):
+        """Validate redirect URLs are internal relative paths only."""
+        if not target or not isinstance(target, str):
+            return False
+        target = target.strip()
+        # Only allow relative paths starting with /
+        # Allow fragments (#) and query params (?)
+        return target.startswith('/') and not target.startswith('//')
 
     @app.before_request
     def before_request_handle_cookie_x_settings():
