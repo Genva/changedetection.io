@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release-version.outputs.version }}
-      update-available: ${{ steps.update-release.outputs.has-update }}
+      update-available: ${{ steps.release-version.outputs.has-update }}
     steps:
       - name: Sync master branch
         run: gh repo sync ${{ github.repository }} -b master
@@ -23,8 +23,8 @@ jobs:
       - name: Get current release
         id: release-version
         run: |
-          last_release=(cat release)
-          current_release=$(curl https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest --header "Authorization: Bearer $GITHUB_TOKEN"| jq -r .tag_name)
+          last_release=$(cat release)
+          current_release=$(curl -v https://api.github.com/repos/dgtlmoon/changedetection.io/releases/latest --header "Authorization: Bearer $GITHUB_TOKEN"| jq -r .tag_name)
           echo "Last release:$last_release"
           echo "Current release:$current_release"
           if [[ "$current_release" != "$last_release" ]]; then
